@@ -104,7 +104,8 @@ is a null pointer, only returns the size and runs faster.
 */
 static size_t EncodeTree(const unsigned* ll_lengths,
                          const unsigned* d_lengths,
-                         int use_16, int use_17, int use_18, int fuse_8,
+                         int use_16, int use_17, int use_18, int fuse_8, int fuse_7,
+                         /* TODO replace those by single int */
                          unsigned char* bp,
                          unsigned char** out, size_t* outsize) {
   unsigned lld_total;  /* Total amount of literal, length, distance codes. */
@@ -184,12 +185,21 @@ static size_t EncodeTree(const unsigned* ll_lengths,
         ZOPFLI_APPEND_DATA(0, &rle_bits, &rle_bits_size);
       }
       while (count >= 3) {
-        if (fuse_8 && count == 8) {    /* record 8 as 4+4 not as 6+single+single */
+        if (fuse_8 && count == 8) { /* record 8 as 4+4 not as 6+single+single */
           if (!size_only) {
             ZOPFLI_APPEND_DATA(16, &rle, &rle_size);
             ZOPFLI_APPEND_DATA(1, &rle_bits, &rle_bits_size);
             ZOPFLI_APPEND_DATA(16, &rle, &rle_size);
             ZOPFLI_APPEND_DATA(1, &rle_bits, &rle_bits_size);
+          }
+          clcounts[16] += 2;
+          count = 0;
+        } else if (fuse_7 && count == 7) { /* record 7 as 4+3 not as 6+single */
+          if (!size_only) {
+            ZOPFLI_APPEND_DATA(16, &rle, &rle_size);
+            ZOPFLI_APPEND_DATA(1, &rle_bits, &rle_bits_size);
+            ZOPFLI_APPEND_DATA(16, &rle, &rle_size);
+            ZOPFLI_APPEND_DATA(0, &rle_bits, &rle_bits_size);
           }
           clcounts[16] += 2;
           count = 0;
@@ -201,7 +211,7 @@ static size_t EncodeTree(const unsigned* ll_lengths,
           }
           clcounts[16]++;
           count -= count2;
-	}
+        }
       }
     }
 
@@ -269,7 +279,7 @@ static void AddDynamicTree(const unsigned* ll_lengths,
 
   for(i = 0; i < 8; i++) {
     size_t size = EncodeTree(ll_lengths, d_lengths,
-                             i & 4, i & 2, i & 1, 0,
+                             i & 4, i & 2, i & 1, 0, 0,
                              0, 0, 0);
     if (bestsize == 0 || size < bestsize) {
       bestsize = size;
@@ -279,7 +289,7 @@ static void AddDynamicTree(const unsigned* ll_lengths,
 
   for(i = 4; i < 8; i++) {
     size_t size = EncodeTree(ll_lengths, d_lengths,
-                             i & 4, i & 2, i & 1, 1,
+                             i & 4, i & 2, i & 1, 1, 0,
                              0, 0, 0);
     if (size < bestsize) {
       bestsize = size;
@@ -287,8 +297,28 @@ static void AddDynamicTree(const unsigned* ll_lengths,
     }
   }
 
+  for(i = 4; i < 8; i++) {
+    size_t size = EncodeTree(ll_lengths, d_lengths,
+                             i & 4, i & 2, i & 1, 0, 1,
+                             0, 0, 0);
+    if (size < bestsize) {
+      bestsize = size;
+      best = 16+i;
+    }
+  }
+
+  for(i = 4; i < 8; i++) {
+    size_t size = EncodeTree(ll_lengths, d_lengths,
+                             i & 4, i & 2, i & 1, 1, 1,
+                             0, 0, 0);
+    if (size < bestsize) {
+      bestsize = size;
+      best = 24+i;
+    }
+  }
+
   EncodeTree(ll_lengths, d_lengths,
-             best & 4, best & 2, best & 1, best & 8,
+             best & 4, best & 2, best & 1, best & 8, best & 16,
              bp, out, outsize);
 }
 
@@ -302,13 +332,25 @@ static size_t CalculateTreeSize(const unsigned* ll_lengths,
 
   for(i = 0; i < 8; i++) {
     size_t size = EncodeTree(ll_lengths, d_lengths,
-                             i & 4, i & 2, i & 1, 0,
+                             i & 4, i & 2, i & 1, 0, 0,
                              0, 0, 0);
     if (result == 0 || size < result) result = size;
   }
   for(i = 4; i < 8; i++) {
     size_t size = EncodeTree(ll_lengths, d_lengths,
-                             i & 4, i & 2, i & 1, 1,
+                             i & 4, i & 2, i & 1, 1, 0,
+                             0, 0, 0);
+    if (size < result) result = size;
+  }
+  for(i = 4; i < 8; i++) {
+    size_t size = EncodeTree(ll_lengths, d_lengths,
+                             i & 4, i & 2, i & 1, 0, 1,
+                             0, 0, 0);
+    if (size < result) result = size;
+  }
+  for(i = 4; i < 8; i++) {
+    size_t size = EncodeTree(ll_lengths, d_lengths,
+                             i & 4, i & 2, i & 1, 1, 1,
                              0, 0, 0);
     if (size < result) result = size;
   }
